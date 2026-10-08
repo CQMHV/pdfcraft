@@ -129,7 +129,7 @@ M0 → M1 → M2 → M3 → M4 must happen in order. After M4, M5–M12 can run 
 
 Newest first. One line per session: the date, what moved, and the new overall percentage.
 
-- **2026-10-09 (M14, #305):** Windows MSI rejects per-user installation overrides while allowing removal of legacy per-user installs, keeps its progress message visible, and identifies its publisher as Learning Machines Inc to match the signed release. README documents unattended deployment without a desktop shortcut. Compiled-MSI and ARM64 install regressions added; validation pending. Overall estimate unchanged (about 30–35%).
+- **2026-10-09 (M14, #305):** Windows MSI rejects per-user installation overrides while allowing removal of legacy per-user installs, keeps its progress message visible, and identifies its publisher as Learning Machines Inc to match the signed release. README documents unattended deployment without a desktop shortcut. Compiled x64 MSI checks pass; ARM64 install regressions added for CI. Overall estimate unchanged (about 30–35%).
 
 - **2026-10-08 (M14, French):** Français (`fr`) is a complete interface catalog (about 1,880 entries), selected automatically for `fr`, `fr_FR`, `fr_CA` and other French locales, and from Preferences. Coverage tests check commands, All tools labels and every `tl!` literal; history labels keep captured names. Latin UI faces cover the catalog. Localization remains partial for Czech and Brazilian Portuguese; overall ≈ 30–35% (unchanged).
 

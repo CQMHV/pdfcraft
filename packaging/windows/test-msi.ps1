@@ -37,7 +37,6 @@ function Assert-NoRow([string] $Sql, [string] $What) {
 # of an older incorrectly scoped installation remains possible (#305).
 $scopeMessage = 'PdfCraft must be installed for all users. Run setup with administrator privileges and ALLUSERS=1; per-user installation is not supported.'
 $scopeCondition = Read-Row ('SELECT `Condition` FROM `LaunchCondition` WHERE `Description` = ''' + $scopeMessage + '''') 1
-$oldUiLevel = $Installer.UILevel
 $Installer.UILevel = 2
 $session = $null
 try {
@@ -59,7 +58,6 @@ try {
   }
 } finally {
   if ($session) { [void] [Runtime.InteropServices.Marshal]::FinalReleaseComObject($session) }
-  $Installer.UILevel = $oldUiLevel
 }
 foreach ($sequence in @('InstallUISequence', 'InstallExecuteSequence')) {
   $launch = Read-Row ('SELECT `Condition`, `Sequence` FROM `' + $sequence + '` WHERE `Action` = ''LaunchConditions''') 2
