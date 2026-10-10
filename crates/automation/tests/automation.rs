@@ -2720,7 +2720,7 @@ fn jpeg_icc_creation_save_and_render_through_tools() {
     let made = ok(&mut a, "doc_create", json!({ "from": "images", "paths": ["profile.jpg"], "dpi": 72 }))["doc"].as_u64().unwrap();
     ok(&mut a, "doc_save", json!({ "doc": made, "path": "made.pdf", "full": true }));
     let saved = Document::open(std::sync::Arc::new(std::fs::read(dir.join("made.pdf")).unwrap())).unwrap();
-    let pages = pdfcraft_model::pages(&saved).unwrap();
+    let pages = pdfcraft_model::pages(&saved);
     let resources = saved.resolve(pages[0].dict.get(b"Resources").unwrap());
     let objects = saved.resolve(resources.as_dict().unwrap().get(b"XObject").unwrap());
     let image = saved.resolve(objects.as_dict().unwrap().get(b"Im0").unwrap());
