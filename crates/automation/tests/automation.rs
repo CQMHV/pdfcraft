@@ -2739,7 +2739,7 @@ fn jpeg_icc_creation_save_and_render_through_tools() {
     let mut reader = png::Decoder::new(std::io::Cursor::new(data)).read_info().unwrap();
     let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     let frame = reader.next_frame(&mut pixels).unwrap();
-    assert!(pixels[..frame.buffer_size()].chunks_exact(4).any(|pixel| pixel[0] < 230), "image must paint, not a blank page");
+    assert!(pixels[..frame.buffer_size()].as_chunks::<4>().0.iter().any(|pixel| pixel[0] < 230), "image must paint, not a blank page");
 }
 
 #[test]
