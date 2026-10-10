@@ -1503,7 +1503,7 @@ fn extract_options_and_rotate_pages_dialog() {
     h.state_mut().views[0].select_pages(&[1, 2]);
     h.state_mut().run_command("page.extract");
     h.run_steps(2);
-    h.state_mut().extract_draft = pdfcraft_ui_egui::ExtractDraft { separate: true, delete: true };
+    h.state_mut().extract_draft = pdfcraft_ui_egui::ExtractDraft { separate: true, delete: true, ..Default::default() };
     h.get_all_by_label("Extract").last().unwrap().click();
     h.run_steps(3);
     let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();

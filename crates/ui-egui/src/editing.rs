@@ -143,7 +143,7 @@ impl PdfCraftApp {
             Some(crate::canvas::ViewAction::Save) => {
                 self.save_active(SaveTarget::InPlace);
             }
-            Some(crate::canvas::ViewAction::Extract) => self.dialog = Some(crate::Dialog::Extract),
+            Some(crate::canvas::ViewAction::Extract) => self.open_extract_dialog(),
             Some(crate::canvas::ViewAction::Split) => self.dialog = Some(crate::Dialog::Split),
             Some(crate::canvas::ViewAction::CopyPages { cut }) => self.copy_pages(cut),
             Some(crate::canvas::ViewAction::PastePages) => self.paste_pages(),

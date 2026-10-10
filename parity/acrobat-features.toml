@@ -2722,8 +2722,8 @@ milestone = "M4"
 status = "shipped"
 commands = ["page.extract"]
 tools = ["page_extract"]
-evidence = ["crates/ui-egui/tests/editing.rs::extract_options_and_rotate_pages_dialog", "crates/automation/tests/automation.rs::organizing_with_filters_bookmark_splits_and_extract_options"]
-notes = ""
+evidence = ["crates/ui-egui/tests/editing.rs::extract_options_and_rotate_pages_dialog", "crates/automation/tests/automation.rs::organizing_with_filters_bookmark_splits_and_extract_options", "crates/ui-egui/tests/pickers.rs::extract_pages_saves_under_the_file_name_typed_in_the_dialog"]
+notes = "The dialog has a File name field (#737), filled in with the document's name: pages are written as `<name> (page N).pdf` into the chosen folder, and one renamed page as `<name>.pdf`. Extracting into a new tab names the tab (and so Save As) after it."
 
 [[feature]]
 id = "organize.extract-and-delete"

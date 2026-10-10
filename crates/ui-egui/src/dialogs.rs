@@ -561,6 +561,12 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
                     crate::i18n::fmt(tl!("{n} pages selected."), &[("n", &count.to_string())])
                 };
                 ui.label(text);
+                ui.add_space(4.0);
+                // The name the pages are saved under (#737); separate files add " (page N)".
+                ui.horizontal(|ui| {
+                    let l = ui.label(tl!("File name"));
+                    ui.add(egui::TextEdit::singleline(&mut app.extract_draft.name).desired_width(240.0)).labelled_by(l.id);
+                });
                 ui.checkbox(&mut app.extract_draft.delete, tl!("Delete pages after extracting"));
                 ui.checkbox(&mut app.extract_draft.separate, tl!("Extract pages as separate files"));
                 ui.add_space(12.0);
