@@ -134,6 +134,217 @@ fn image_of(doc: &Document, page: usize) -> Dict {
     }
 }
 
+/// Contributor-original ICC header, generated in code rather than a binary fixture. The
+/// importer preserves profile bytes; these tests do not exercise a colour-management engine.
+fn icc_profile(space: &[u8; 4], length: usize) -> Vec<u8> {
+    let mut profile = vec![0; length];
+    profile[..4].copy_from_slice(&(length as u32).to_be_bytes());
+    profile[8..12].copy_from_slice(&[4, 0x30, 0, 0]);
+    profile[12..16].copy_from_slice(b"mntr");
+    profile[16..20].copy_from_slice(space);
+    profile[20..24].copy_from_slice(b"XYZ ");
+    profile[36..40].copy_from_slice(b"acsp");
+    profile
+}
+
+fn jpeg_segment(marker: u8, payload: &[u8]) -> Vec<u8> {
+    let mut segment = vec![0xFF, marker];
+    segment.extend_from_slice(&u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+    segment.extend_from_slice(payload);
+    segment
+}
+
+fn icc_segment(sequence: u8, count: u8, payload: &[u8]) -> Vec<u8> {
+    let mut data = b"ICC_PROFILE\0".to_vec();
+    data.extend_from_slice(&[sequence, count]);
+    data.extend_from_slice(payload);
+    jpeg_segment(0xE2, &data)
+}
+
+fn jpeg_with_segments(components: u8, before_frame: &[Vec<u8>], after_frame: &[Vec<u8>]) -> Vec<u8> {
+    let mut jpeg = vec![0xFF, 0xD8];
+    for segment in before_frame {
+        jpeg.extend_from_slice(segment);
+    }
+    let mut frame = vec![8, 0, 2, 0, 3, components];
+    for component in 1..=components {
+        frame.extend_from_slice(&[component, 0x11, 0]);
+    }
+    jpeg.extend_from_slice(&jpeg_segment(0xC0, &frame));
+    for segment in after_frame {
+        jpeg.extend_from_slice(segment);
+    }
+    jpeg.extend_from_slice(&[0xFF, 0xD9]);
+    jpeg
+}
+
+fn image_stream_of(doc: &Document, page: usize) -> Stream {
+    let page = &pages(doc)[page];
+    let res = doc.resolve(page.get(b"Resources").unwrap());
+    let xo = doc.resolve(res.as_dict().unwrap().get(b"XObject").unwrap());
+    let image = doc.resolve(xo.as_dict().unwrap().get(b"Im0").unwrap());
+    let Object::Stream(stream) = &*image else { panic!("expected an image stream") };
+    stream.clone()
+}
+
+fn assert_jpeg_icc(jpeg: &[u8], profile: &[u8], components: i64, alternate: &[u8]) -> Dict {
+    let doc = reopen(&from_images(&[("profile.jpg".into(), jpeg.to_vec())]).unwrap());
+    assert_jpeg_icc_in_document(&doc, jpeg, profile, components, alternate)
+}
+
+fn assert_jpeg_icc_in_document(doc: &Document, jpeg: &[u8], profile: &[u8], components: i64, alternate: &[u8]) -> Dict {
+    let image = image_stream_of(doc, 0);
+    assert_eq!(image.raw.as_ref(), jpeg, "JPEG bytes must not be recompressed");
+    assert_eq!(image.dict.name(b"Filter"), Some(&b"DCTDecode"[..]));
+    let color_space = image.dict.get(b"ColorSpace").unwrap().as_array().unwrap();
+    assert_eq!(color_space.len(), 2);
+    assert_eq!(color_space[0].as_name(), Some(&b"ICCBased"[..]));
+    assert!(color_space[1].as_ref().is_some(), "ICC profile must be an indirect stream");
+    let icc = doc.resolve(&color_space[1]);
+    let Object::Stream(icc) = &*icc else { panic!("expected an ICC profile stream") };
+    assert_eq!(icc.dict.int(b"N"), Some(components));
+    assert_eq!(icc.dict.name(b"Alternate"), Some(alternate));
+    assert_eq!(icc.decoded().unwrap(), profile, "ICC bytes survive save and reopen");
+    image.dict
+}
+
+#[test]
+fn jpeg_icc_profiles_survive_save_and_reopen() {
+    for (components, space, alternate) in [(1, *b"GRAY", &b"DeviceGray"[..]), (3, *b"RGB ", &b"DeviceRGB"[..]), (4, *b"CMYK", &b"DeviceCMYK"[..])] {
+        let profile = icc_profile(&space, 132);
+        let jpeg = jpeg_with_segments(components, &[icc_segment(1, 1, &profile)], &[]);
+        let dict = assert_jpeg_icc(&jpeg, &profile, components.into(), alternate);
+        assert!(!dict.contains(b"Decode"), "uninverted samples remain uninverted");
+    }
+}
+
+#[test]
+fn jpeg_icc_is_preserved_when_embedding_an_image_xobject() {
+    for (components, space, alternate) in [(1, *b"GRAY", &b"DeviceGray"[..]), (3, *b"RGB ", &b"DeviceRGB"[..]), (4, *b"CMYK", &b"DeviceCMYK"[..])] {
+        let profile = icc_profile(&space, 132);
+        let jpeg = jpeg_with_segments(components, &[icc_segment(1, 1, &profile)], &[]);
+        let mut doc = Document::new_empty();
+        let (image, size) = image_xobject(&mut doc, "profile.jpg", &jpeg).unwrap();
+        assert_eq!(size, (3.0, 2.0));
+        let mut xobjects = Dict::new();
+        xobjects.set(b"Im0".to_vec(), Object::Ref(image));
+        let mut resources = Dict::new();
+        resources.set(b"XObject".to_vec(), Object::Dict(xobjects));
+        add_page(&mut doc, size.0, size.1, resources, None).unwrap();
+        assert_jpeg_icc_in_document(&reopen(&doc), &jpeg, &profile, components.into(), alternate);
+    }
+}
+
+#[test]
+fn jpeg_icc_marker_fill_bytes_are_accepted() {
+    let profile = icc_profile(b"RGB ", 132);
+    let mut filled = vec![0xFF];
+    filled.extend_from_slice(&icc_segment(1, 1, &profile));
+    let jpeg = jpeg_with_segments(3, &[filled], &[]);
+    assert_jpeg_icc(&jpeg, &profile, 3, b"DeviceRGB");
+}
+
+#[test]
+fn jpeg_icc_scanning_stops_at_start_of_scan() {
+    let profile = icc_profile(b"RGB ", 132);
+    let mut jpeg = jpeg_with_segments(3, &[icc_segment(1, 1, &profile)], &[]);
+    jpeg.truncate(jpeg.len() - 2);
+    jpeg.extend_from_slice(&jpeg_segment(0xDA, &[3, 1, 0, 2, 0x11, 3, 0x11, 0, 63, 0]));
+    // These entropy bytes resemble a duplicate ICC APP2 and an inverted-CMYK marker.
+    // They are opaque DCT data, and must never change the image metadata.
+    jpeg.extend_from_slice(&icc_segment(1, 1, &profile));
+    jpeg.extend_from_slice(&jpeg_segment(0xEE, b"Adobe\0\x64\0\0\0\0\0"));
+    jpeg.extend_from_slice(&[0xFF, 0xD9]);
+    assert_jpeg_icc(&jpeg, &profile, 3, b"DeviceRGB");
+}
+
+#[test]
+fn jpeg_rejects_invalid_segment_lengths_without_panicking() {
+    for segment in [vec![0xFF, 0xE2, 0, 0], vec![0xFF, 0xE2, 0, 1], vec![0xFF, 0xE2, 0], vec![0xFF, 0xE2, 0, 16, 1]] {
+        let mut jpeg = jpeg_with_segments(3, &[], &[]);
+        jpeg.truncate(jpeg.len() - 2);
+        jpeg.extend_from_slice(&segment);
+        assert!(matches!(from_images(&[("truncated.jpg".into(), jpeg)]), Err(CreateError::Image(..))), "{segment:?}");
+    }
+}
+
+#[test]
+fn jpeg_icc_chunks_reassemble_out_of_order() {
+    let mut profile = icc_profile(b"RGB ", 236_000);
+    for (index, byte) in profile[132..].iter_mut().enumerate() {
+        *byte = (index % 251) as u8;
+    }
+    let segments: Vec<Vec<u8>> = profile.chunks(60_000).enumerate().map(|(index, chunk)| icc_segment(index as u8 + 1, 4, chunk)).collect();
+    let reversed: Vec<Vec<u8>> = segments.into_iter().rev().collect();
+    let jpeg = jpeg_with_segments(3, &reversed, &[]);
+    assert_jpeg_icc(&jpeg, &profile, 3, b"DeviceRGB");
+}
+
+#[test]
+fn jpeg_icc_after_frame_header_and_cmyk_decode_are_preserved() {
+    let profile = icc_profile(b"CMYK", 132);
+    // APP14 is synthetic compatibility metadata, not an asset from an Adobe product.
+    let app14 = jpeg_segment(0xEE, b"Adobe\0\x64\0\0\0\0\0");
+    let jpeg = jpeg_with_segments(4, &[], &[icc_segment(1, 1, &profile), app14]);
+    let dict = assert_jpeg_icc(&jpeg, &profile, 4, b"DeviceCMYK");
+    let decode: Vec<i64> = dict.get(b"Decode").unwrap().as_array().unwrap().iter().map(|value| value.as_int().unwrap()).collect();
+    assert_eq!(decode, [1, 0, 1, 0, 1, 0, 1, 0]);
+}
+
+#[test]
+fn jpeg_without_icc_keeps_device_color_spaces() {
+    for (components, alternate) in [(1, &b"DeviceGray"[..]), (3, &b"DeviceRGB"[..]), (4, &b"DeviceCMYK"[..])] {
+        let jpeg = jpeg_with_segments(components, &[jpeg_segment(0xE2, b"unrelated APP2 metadata")], &[]);
+        let doc = reopen(&from_images(&[("device.jpg".into(), jpeg.clone())]).unwrap());
+        let image = image_stream_of(&doc, 0);
+        assert_eq!(image.dict.name(b"ColorSpace"), Some(alternate));
+        assert_eq!(image.raw.as_ref(), jpeg.as_slice());
+    }
+}
+
+#[test]
+fn jpeg_rejects_invalid_icc_chunks() {
+    let profile = icc_profile(b"RGB ", 132);
+    let invalid = [
+        ("zero sequence", vec![icc_segment(0, 1, &profile)]),
+        ("zero count", vec![icc_segment(1, 0, &profile)]),
+        ("sequence beyond count", vec![icc_segment(2, 1, &profile)]),
+        ("missing chunk", vec![icc_segment(1, 2, &profile)]),
+        ("duplicate chunk", vec![icc_segment(1, 2, &profile[..66]), icc_segment(1, 2, &profile[66..])]),
+        ("conflicting counts", vec![icc_segment(1, 2, &profile[..66]), icc_segment(2, 3, &profile[66..])]),
+        ("missing counters", vec![jpeg_segment(0xE2, b"ICC_PROFILE\0")]),
+        ("empty chunk", vec![icc_segment(1, 1, &[])]),
+    ];
+    for (case, segments) in invalid {
+        let jpeg = jpeg_with_segments(3, &segments, &[]);
+        assert!(matches!(from_images(&[("broken.jpg".into(), jpeg)]), Err(CreateError::Image(..))), "{case}");
+    }
+}
+
+#[test]
+fn jpeg_rejects_invalid_icc_profiles() {
+    let profile = icc_profile(b"RGB ", 132);
+    let mut bad_signature = profile.clone();
+    bad_signature[36..40].copy_from_slice(b"nope");
+    let mut short_size = profile.clone();
+    short_size[..4].copy_from_slice(&131u32.to_be_bytes());
+    let mut long_size = profile.clone();
+    long_size[..4].copy_from_slice(&133u32.to_be_bytes());
+    let invalid = [
+        ("truncated header", profile[..40].to_vec()),
+        ("bad signature", bad_signature),
+        ("size shorter than data", short_size),
+        ("size longer than data", long_size),
+        ("unsupported space", icc_profile(b"Lab ", 132)),
+        ("gray profile for RGB samples", icc_profile(b"GRAY", 132)),
+        ("CMYK profile for RGB samples", icc_profile(b"CMYK", 132)),
+    ];
+    for (case, profile) in invalid {
+        let jpeg = jpeg_with_segments(3, &[icc_segment(1, 1, &profile)], &[]);
+        assert!(matches!(from_images(&[("broken.jpg".into(), jpeg)]), Err(CreateError::Image(..))), "{case}");
+    }
+}
+
 #[test]
 fn bmp_gif_and_multi_page_tiff_images() {
     use image::{ImageEncoder, Rgba, RgbaImage};

@@ -2686,6 +2686,63 @@ fn initial_view_through_tools() {
 }
 
 #[test]
+fn jpeg_icc_creation_save_and_render_through_tools() {
+    use pdfcraft_cos::{Document, Object};
+
+    let dir = workdir("jpeg-icc");
+    let mut a = auto(&dir);
+    // Use PdfCraft's contributor-original sRGB generator, not an external profile asset.
+    let source = ok(&mut a, "doc_create", json!({ "from": "blank" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "pdfa_convert", json!({ "doc": source, "level": "2b" }));
+    ok(&mut a, "doc_save", json!({ "doc": source, "path": "profile.pdf", "full": true }));
+    let source = Document::open(std::sync::Arc::new(std::fs::read(dir.join("profile.pdf")).unwrap())).unwrap();
+    let catalog = source.get(source.root().unwrap());
+    let intents = catalog.as_dict().unwrap().get(b"OutputIntents").unwrap().as_array().unwrap();
+    let intent = source.resolve(&intents[0]);
+    let profile = source.resolve(intent.as_dict().unwrap().get(b"DestOutputProfile").unwrap());
+    let Object::Stream(profile) = &*profile else { panic!("expected ICC stream") };
+    let profile = profile.decoded().unwrap();
+
+    let mut encoded = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new(&mut encoded).encode(&[180; 16 * 12 * 3], 16, 12, image::ExtendedColorType::Rgb8).unwrap();
+    let mut jpeg = encoded[..2].to_vec();
+    let chunks: Vec<_> = profile.chunks(profile.len().div_ceil(2)).collect();
+    for (index, chunk) in chunks.iter().enumerate().rev() {
+        let length = u16::try_from(chunk.len() + 16).unwrap();
+        jpeg.extend_from_slice(&[0xFF, 0xE2]);
+        jpeg.extend_from_slice(&length.to_be_bytes());
+        jpeg.extend_from_slice(b"ICC_PROFILE\0");
+        jpeg.extend_from_slice(&[index as u8 + 1, chunks.len() as u8]);
+        jpeg.extend_from_slice(chunk);
+    }
+    jpeg.extend_from_slice(&encoded[2..]);
+    std::fs::write(dir.join("profile.jpg"), &jpeg).unwrap();
+    let made = ok(&mut a, "doc_create", json!({ "from": "images", "paths": ["profile.jpg"], "dpi": 72 }))["doc"].as_u64().unwrap();
+    ok(&mut a, "doc_save", json!({ "doc": made, "path": "made.pdf", "full": true }));
+    let saved = Document::open(std::sync::Arc::new(std::fs::read(dir.join("made.pdf")).unwrap())).unwrap();
+    let pages = pdfcraft_model::pages(&saved).unwrap();
+    let resources = saved.resolve(pages[0].dict.get(b"Resources").unwrap());
+    let objects = saved.resolve(resources.as_dict().unwrap().get(b"XObject").unwrap());
+    let image = saved.resolve(objects.as_dict().unwrap().get(b"Im0").unwrap());
+    let Object::Stream(image) = &*image else { panic!("expected image stream") };
+    assert_eq!(image.raw.as_ref(), jpeg.as_slice());
+    let space = image.dict.get(b"ColorSpace").unwrap().as_array().unwrap();
+    assert_eq!(space[0].as_name(), Some(&b"ICCBased"[..]));
+    let icc = saved.resolve(&space[1]);
+    let Object::Stream(icc) = &*icc else { panic!("expected ICC stream") };
+    assert_eq!(icc.dict.int(b"N"), Some(3));
+    assert_eq!(icc.decoded().unwrap(), profile);
+    let reopened = ok(&mut a, "doc_open", json!({ "path": "made.pdf" }))["doc"].as_u64().unwrap();
+    let render = a.call("page_render", &json!({ "doc": reopened, "page": 1, "dpi": 72 })).unwrap();
+    let Content::Png { data, width, height } = &render[0] else { panic!("expected PNG") };
+    assert_eq!((*width, *height), (16, 12));
+    let mut reader = png::Decoder::new(std::io::Cursor::new(data)).read_info().unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut pixels).unwrap();
+    assert!(pixels[..frame.buffer_size()].chunks_exact(4).any(|pixel| pixel[0] < 230), "image must paint, not a blank page");
+}
+
+#[test]
 fn ocr_tools_make_a_scan_searchable() {
     let dir = workdir("ocr");
     let mut a = auto(&dir);
