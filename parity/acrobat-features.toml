@@ -4302,10 +4302,8 @@ milestone = "M3"
 status = "shipped"
 commands = ["form.fields"]
 tools = ["doc_info"]
-evidence = ["crates/ui-egui/tests/view.rs::field_list_jumps_to_a_fields_page", "crates/render/src/inspect.rs::fields_listed_only_on_the_pages_are_listed"]
-notes = "read-only list with jump-to-field; filling and editing are separate features (M6); fields a file lists only as page widgets (empty /Fields) are adopted too"
-evidence = ["crates/ui-egui/tests/view.rs::field_list_jumps_to_a_fields_page", "crates/ui-egui/tests/bulk_fields.rs::fields_panel_selects_multiple_fields_and_opens_their_shared_properties", "crates/ui-egui/tests/bulk_fields.rs::double_clicking_a_field_in_the_panel_opens_its_individual_properties"]
-notes = "list with jump-to-field; in Prepare a form, Shift/Ctrl/Command-click selects several fields and Properties edits their shared properties; double-click opens field properties"
+evidence = ["crates/ui-egui/tests/view.rs::field_list_jumps_to_a_fields_page", "crates/render/src/inspect.rs::fields_listed_only_on_the_pages_are_listed", "crates/ui-egui/tests/bulk_fields.rs::fields_panel_selects_multiple_fields_and_opens_their_shared_properties", "crates/ui-egui/tests/bulk_fields.rs::double_clicking_a_field_in_the_panel_opens_its_individual_properties"]
+notes = "list with jump-to-field; in Prepare a form, Shift/Ctrl/Command-click selects several fields and Properties edits their shared properties; double-click opens field properties; fields a file lists only as page widgets (empty /Fields) are adopted too"
 
 [[feature]]
 id = "form.highlight-fields"
@@ -5581,7 +5579,7 @@ status = "partial"
 commands = ["redact.properties"]
 tools = ["redact_mark"]
 evidence = ["crates/ui-egui/tests/redact.rs::marking_applying_and_clearing", "crates/redact/src/tests.rs::overlay_text_takes_its_font_size_colour_alignment_and_repeats"]
-notes = "fill colour or none; overlay text with font, size or auto-size, colour, alignment and repeat; redaction codes pending"
+notes = "fill colour or none; overlay text with font, size or auto-size, colour, alignment and repeat, or redaction codes (protect.redaction-codes)"
 
 [[feature]]
 id = "protect.redaction-codes"
@@ -5589,11 +5587,11 @@ title = "Redaction code sets (e.g. FOIA exemptions)"
 area = "G"
 tier = "P1"
 milestone = "M8"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "partial"
+commands = ["redact.properties"]
+tools = ["redact_mark"]
+evidence = ["crates/redact/src/tests.rs::redaction_codes_join_in_set_order_and_reject_strangers", "crates/automation/tests/automation.rs::redacting_with_codes_through_tools", "crates/ui-egui/tests/redact.rs::redaction_codes_become_the_overlay_text"]
+notes = "built-in U.S. FOIA (5 U.S.C. 552(b)) and U.S. Privacy Act (552a) sets; picked codes become the overlay text, in the set's order. Missing: Edit Codes, custom code sets, import/export of code sets"
 
 [[feature]]
 id = "protect.apply-redactions"
