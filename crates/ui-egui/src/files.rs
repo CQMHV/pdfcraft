@@ -19,11 +19,16 @@ pub enum FilePurpose {
     Ocr,
     /// Create a PDF ▸ Multiple files (PDFs, images and text).
     CreateMultiple,
+    /// Find text and redact ▸ Import list: a text file with one word or phrase per line.
+    RedactWords,
 }
 
 /// The picker for `purpose`: PDFs, and for Create and Insert also what they convert.
 fn files_picker(purpose: FilePurpose) -> rfd::AsyncFileDialog {
     let dialog = rfd::AsyncFileDialog::new();
+    if purpose == FilePurpose::RedactWords {
+        return dialog.add_filter(tl!("Text"), &["txt"]);
+    }
     if !matches!(purpose, FilePurpose::CreateMultiple | FilePurpose::InsertPages) {
         return dialog.add_filter("PDF", &["pdf"]);
     }
@@ -201,7 +206,7 @@ impl PdfCraftApp {
         self.pick_files(FilePurpose::InsertPages, true);
     }
 
-    fn pick_files(&mut self, purpose: FilePurpose, multiple: bool) {
+    pub(crate) fn pick_files(&mut self, purpose: FilePurpose, multiple: bool) {
         #[cfg(not(target_arch = "wasm32"))]
         self.pick(crate::pickers::PickFor::Files(purpose), files_picker(purpose), multiple);
         #[cfg(target_arch = "wasm32")]
@@ -238,6 +243,10 @@ impl PdfCraftApp {
         let mut modified = Vec::new();
         for p in paths {
             let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file.pdf".into());
+            if purpose == FilePurpose::RedactWords && std::fs::metadata(p).is_ok_and(|m| m.len() > crate::redact_ui::MAX_WORD_LIST_BYTES as u64) {
+                self.notify_fmt("{name} is too large for a word list (at most 1 MB).", &[("name", &name)]);
+                return;
+            }
             match std::fs::read(p) {
                 Ok(b) => files.push((name, b)),
                 Err(e) => {
@@ -351,6 +360,15 @@ impl PdfCraftApp {
             }
             FilePurpose::Ocr => self.ocr_files(files),
             FilePurpose::CreateMultiple => self.stage_create_multiple(files),
+            FilePurpose::RedactWords => {
+                let Some((name, bytes)) = files.into_iter().next() else { return };
+                if bytes.len() > crate::redact_ui::MAX_WORD_LIST_BYTES {
+                    self.notify_fmt("{name} is too large for a word list (at most 1 MB).", &[("name", &name)]);
+                    return;
+                }
+                self.redact_search.words = pdfcraft_engine::redact_word_list(&String::from_utf8_lossy(&bytes)).join("\n");
+                self.redact_search.mode = crate::redact_ui::SearchMode::Words;
+            }
         }
     }
 

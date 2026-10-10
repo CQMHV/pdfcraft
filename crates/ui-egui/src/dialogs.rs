@@ -45,6 +45,7 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let mut field_props_now = false;
     let mut bulk_field_props_now = false;
     let mut redact_now: Option<Dialog> = None;
+    let mut import_words = false;
     let mut print_go = false;
     let mut revert_now = false;
     let mut summarize_now = false;
@@ -515,10 +516,11 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 return;
             }
             Dialog::RedactSearch => {
-                let (go, cancel) = crate::redact_ui::search_body(ui, &mut app.redact_search, &t);
+                let (go, cancel, import) = crate::redact_ui::search_body(ui, &mut app.redact_search, &t);
                 if go {
                     redact_now = Some(dialog);
                 }
+                import_words = import;
                 close = cancel;
                 return;
             }
@@ -1213,6 +1215,9 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     }
     if rotate_now {
         app.rotate_with_draft();
+    }
+    if import_words {
+        app.pick_files(crate::files::FilePurpose::RedactWords, false);
     }
     match redact_now {
         Some(Dialog::RedactPages) => app.redact_pages(),

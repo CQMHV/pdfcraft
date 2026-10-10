@@ -1309,7 +1309,7 @@ fn zoomed_pages_in_view_are_rendered_at_the_size_drawn() {
     // Zoomed out again, thumbnails are enough and the sharp renders are dropped.
     h.state_mut().set_option("grid-zoom", "50").unwrap();
     h.run_steps(3);
-    assert!(sharp(&h, 0).is_none());
+    assert!(sharp(&h, 0).is_none(), "page 0 still has a sharp render: {:?}", sharp(&h, 0));
 }
 
 #[test]
