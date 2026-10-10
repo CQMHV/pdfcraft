@@ -6086,8 +6086,8 @@ milestone = "M9"
 status = "shipped"
 commands = ["sign.validate"]
 tools = ["sign_list"]
-evidence = ["crates/sign/tests/pdf.rs::signing_then_validating_with_and_without_trust", "crates/automation/tests/automation.rs::digital_ids_signing_and_validation_through_tools"]
-notes = ""
+evidence = ["crates/sign/tests/pdf.rs::signing_then_validating_with_and_without_trust", "crates/automation/tests/automation.rs::digital_ids_signing_and_validation_through_tools", "crates/sign/tests/chain.rs::a_trusted_signer_whose_certificate_may_not_sign_is_not_valid"]
+notes = "The signer's key usage, extended key usage and critical extensions are checked; name constraints are not"
 
 [[feature]]
 id = "sign.signatures-panel"
