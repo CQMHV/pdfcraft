@@ -899,6 +899,41 @@ fn bookmarks_through_tools() {
 }
 
 #[test]
+fn bookmarks_from_structure_through_tools() {
+    let dir = workdir("bookmarks-structure");
+    std::fs::write(
+        dir.join("tagged.pdf"),
+        b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >> endobj
+4 0 obj << /Type /Page /Parent 2 0 R >> endobj
+5 0 obj << /Type /StructTreeRoot /K 6 0 R /RoleMap << /Heading /H1 >> >> endobj
+6 0 obj << /S /Document /K [7 0 R << /S /Sect /K 8 0 R >>] >> endobj
+7 0 obj << /S /Heading /Pg 3 0 R /ActualText (Report) >> endobj
+8 0 obj << /S /H2 /Pg 4 0 R /Alt (Findings) >> endobj
+trailer << /Root 1 0 R >>
+%%EOF"
+            .as_slice(),
+    )
+    .unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "tagged.pdf" }))["doc"].as_u64().unwrap();
+    let r = ok(&mut a, "bookmark_from_structure", json!({ "doc": doc }));
+    let top = &r["bookmarks"][0];
+    assert_eq!(
+        (top["title"].as_str(), top["children"][0]["title"].as_str(), top["children"][0]["page"].as_u64()),
+        (Some("Untitled"), Some("Report"), Some(1))
+    );
+    assert_eq!(top["children"][0]["children"][0]["title"], "Findings");
+    assert_eq!(top["children"][0]["children"][0]["path"], json!([1, 1, 1]));
+    assert_eq!(ok(&mut a, "edit_undo", json!({ "doc": doc }))["undone"], "New bookmarks from structure");
+    // An untagged document: an error that says why.
+    let plain = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    assert!(matches!(a.call("bookmark_from_structure", &json!({ "doc": plain })), Err(ToolError::Failed(m)) if m.contains("no tagged headings")));
+}
+
+#[test]
 fn numbering_pages_through_tools() {
     let dir = workdir("labels");
     let mut a = auto(&dir);

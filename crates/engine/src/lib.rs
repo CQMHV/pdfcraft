@@ -773,6 +773,9 @@ pub enum Edit {
         path: Vec<usize>,
         page: usize,
     },
+    /// Bookmarks for the tagged headings (H, H1–H6), nested by level under a new first
+    /// "Untitled" bookmark (New Bookmarks from Structure).
+    BookmarksFromStructure,
     /// Label pages `from..=to` (0-based) as Acrobat's "Number pages" does; later pages keep their labels.
     NumberPages {
         from: usize,
@@ -1133,6 +1136,7 @@ impl Edit {
             Edit::DeleteBookmark { .. } => "Delete bookmark".into(),
             Edit::MoveBookmark { .. } => "Move bookmark".into(),
             Edit::SetBookmarkPage { .. } => "Set bookmark destination".into(),
+            Edit::BookmarksFromStructure => "New bookmarks from structure".into(),
             Edit::NumberPages { .. } => "Number pages".into(),
             Edit::AddMeasurement(m) => format!("Measure {}", m.kind.name()),
             Edit::SetMeasurementScale { .. } => "Set measurement scale".into(),
@@ -1267,6 +1271,7 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::DeleteBookmark { .. }
         | Edit::MoveBookmark { .. }
         | Edit::SetBookmarkPage { .. }
+        | Edit::BookmarksFromStructure
         | Edit::NumberPages { .. } => {
             if p.assemble() {
                 Ok(())
@@ -1474,6 +1479,13 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             pdfcraft_organize::move_bookmark(doc, from, to_parent, *index)?;
         }
         Edit::SetBookmarkPage { path, page } => pdfcraft_organize::set_bookmark_page(doc, path, *page)?,
+        Edit::BookmarksFromStructure => {
+            let entries: Vec<_> = pdfcraft_a11y::headings(doc)
+                .into_iter()
+                .map(|h| pdfcraft_organize::OutlineEntry { level: h.level, title: h.title, page: h.page, element: h.obj })
+                .collect();
+            pdfcraft_organize::add_bookmark_tree(doc, "Untitled", &entries)?;
+        }
         Edit::NumberPages { from, to, style, prefix, first } => pdfcraft_organize::number_pages(doc, *from, *to, *style, prefix, *first)?,
         Edit::AddMeasurement(m) => {
             measure::add(doc, m, &cx.meta())?;

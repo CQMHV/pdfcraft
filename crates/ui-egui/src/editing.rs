@@ -717,6 +717,10 @@ impl PdfCraftApp {
                 let at = parent[parent.len() - 1] + 1;
                 Edit::MoveBookmark { from: path, to_parent: grand, index: at }
             }
+            A::FromStructure => {
+                self.right = Some(crate::RightPanel::Bookmarks);
+                Edit::BookmarksFromStructure
+            }
         };
         self.apply_edit(edit);
     }

@@ -173,6 +173,7 @@ impl PdfCraftApp {
                 }
             }
             "bookmark.add" => self.bookmark_action(crate::panels::BmAction::New),
+            "bookmark.from_structure" => self.bookmark_action(crate::panels::BmAction::FromStructure),
             "edit.undo" => self.undo(),
             "edit.redo" => self.redo(),
             "edit.find" => {
