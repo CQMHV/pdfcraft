@@ -16,6 +16,18 @@ fn page_rotation_resolves_inheritance_overrides_and_missing_pages() {
     assert_eq!(page_rotation(&doc, 3), Err(OrganizeError::NoSuchPage(3)));
 }
 
+#[test]
+fn rotate_rejects_angles_that_are_not_multiples_of_90() {
+    // The page tree only turns in quarter steps, so anything else used to be silently truncated
+    // by the integer division. It has to be an error, and the document must stay as it was.
+    let mut doc = Document::open(Arc::new(fixture())).unwrap();
+    assert_eq!(rotate_pages(&mut doc, &[0], 45), Err(OrganizeError::Invalid("rotation must be a multiple of 90 degrees".into())));
+    assert_eq!(rotate_pages(&mut doc, &[0], 91), Err(OrganizeError::Invalid("rotation must be a multiple of 90 degrees".into())));
+    assert_eq!(page_rotation(&doc, 0).unwrap(), 90);
+    rotate_pages(&mut doc, &[0], -90).unwrap();
+    assert_eq!(page_rotation(&doc, 0).unwrap(), 0);
+}
+
 /// A 3-page document with a nested page tree. MediaBox and Rotate are inherited from the root,
 /// Resources from an intermediate node; each page's content says which page it is.
 fn fixture() -> Vec<u8> {
@@ -156,6 +168,45 @@ fn deleted_pages_are_not_kept_by_what_points_at_them() {
     let cat = out.get(out.root().unwrap()).as_dict().cloned().unwrap();
     let form = out.resolve(cat.get(b"AcroForm").unwrap());
     assert_eq!(form.as_dict().and_then(|f| f.get(b"Fields")).and_then(Object::as_array).map(Vec::len), Some(0), "the field went with its page");
+}
+
+#[test]
+fn deleting_the_opening_page_drops_the_open_action() {
+    let open_action = |doc: &Document| doc.get(doc.root().unwrap()).as_dict().unwrap().get(b"OpenAction").cloned();
+    let set_open = |doc: &mut Document, value: Object| {
+        let root = doc.root().unwrap();
+        doc.update_dict(root, |c| c.set(b"OpenAction".to_vec(), value)).unwrap();
+    };
+    let page = |doc: &Document, i: usize| pages(doc).unwrap()[i].obj;
+    for as_action in [false, true] {
+        let target = |doc: &Document, i: usize| {
+            let dest = Object::Array(vec![Object::Ref(page(doc, i)), Object::Name(b"Fit".to_vec())]);
+            if as_action {
+                let mut a = Dict::new();
+                a.set(b"S".to_vec(), Object::Name(b"GoTo".to_vec()));
+                a.set(b"D".to_vec(), dest);
+                Object::Dict(a)
+            } else {
+                dest
+            }
+        };
+        // The opening page goes: no OpenAction is left to point at nothing.
+        let mut doc = doc_a();
+        let open = target(&doc, 0);
+        set_open(&mut doc, open);
+        delete_pages(&mut doc, &[0]).unwrap();
+        let out = full_roundtrip(&doc);
+        assert_eq!(labels(&out), ["A2", "A3"]);
+        assert_eq!(open_action(&out), None);
+        // Another page goes: the opening page keeps its OpenAction.
+        let mut doc = doc_a();
+        let open = target(&doc, 0);
+        set_open(&mut doc, open);
+        delete_pages(&mut doc, &[2]).unwrap();
+        let out = full_roundtrip(&doc);
+        assert_eq!(labels(&out), ["A1", "A2"]);
+        assert!(open_action(&out).is_some());
+    }
 }
 
 #[test]
@@ -733,6 +784,30 @@ fn bookmarks_add_rename_move_delete() {
     // Everything survives a save and reopen.
     let back = full_roundtrip(&d);
     assert_eq!(titles(&crate::bookmarks(&back)), ["Intro", "Results[Figure 1]"]);
+}
+
+#[test]
+fn a_bookmark_tree_nests_entries_by_level_under_a_new_first_bookmark() {
+    let mut d = doc_a();
+    crate::add_bookmark(&mut d, &[], 0, "Existing", 0).unwrap();
+    let e = |level, title: &str, page, element| crate::OutlineEntry { level, title: title.into(), page, element };
+    let se = ObjRef::new(4242, 0);
+    let entries = [e(1, "One", 0, Some(se)), e(3, "Deep", 1, None), e(2, "Two", 1, None), e(1, "Next", 2, None)];
+    assert_eq!(crate::add_bookmark_tree(&mut d, "Untitled", &entries).unwrap(), vec![0]);
+    assert_eq!(titles(&crate::bookmarks(&d)), ["Untitled[One[Deep,Two],Next]", "Existing"]);
+
+    let b = crate::bookmarks(&d);
+    let root = d.get(d.root().unwrap()).as_dict().unwrap().reference(b"Outlines").unwrap();
+    assert_eq!((count_of(&d, root), count_of(&d, b[0].obj), count_of(&d, b[0].children[0].obj)), (Some(6), Some(4), Some(2)));
+    let one = d.get(b[0].children[0].obj).as_dict().cloned().unwrap();
+    assert_eq!(one.get(b"SE"), Some(&Object::Ref(se)));
+    let pages = crate::walk(&d).unwrap();
+    let next = d.get(b[0].children[1].obj).as_dict().cloned().unwrap();
+    assert_eq!(next.get(b"Dest").and_then(|x| x.as_array()).map(|a| a[0].clone()), Some(Object::Ref(pages[2].0)));
+
+    assert_eq!(crate::add_bookmark_tree(&mut d, "Untitled", &[]), Err(crate::OutlineError::NoEntries));
+    assert!(crate::add_bookmark_tree(&mut d, "Untitled", &[e(1, "Nowhere", 9, None)]).is_err());
+    assert_eq!(titles(&crate::bookmarks(&full_roundtrip(&d))), ["Untitled[One[Deep,Two],Next]", "Existing"]);
 }
 
 #[test]
